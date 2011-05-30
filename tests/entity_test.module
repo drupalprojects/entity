@@ -66,11 +66,8 @@ function entity_test_entity_info_alter(&$entity_info) {
  *   If set, the type with the given name is returned.
  */
 function entity_test_get_types($name = NULL) {
-  $types = entity_load('entity_test_type', isset($name) ? array($name) : FALSE);
-  if (isset($name)) {
-    return isset($types[$name]) ? $types[$name] : FALSE;
-  }
-  return $types;
+  $types = entity_load_multiple_by_name('entity_test_type', isset($name) ? array($name) : FALSE);
+  return isset($name) ? reset($types) : $types;
 }
 
 /**

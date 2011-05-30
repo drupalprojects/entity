@@ -106,7 +106,7 @@ interface EntityAPIControllerInterface extends DrupalEntityControllerInterface {
    *   (optional) A language code to use for rendering. Defaults to the global
    *   content language of the current request.
    * @return
-   *   The renderable array.
+   *   The renderable array, keyed by entity name or numeric id.
    */
   public function view($entities, $view_mode = 'full', $langcode = NULL);
 }
@@ -217,7 +217,7 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
       $queried_entities = array();
       foreach ($this->query($ids, $conditions, $revision_id) as $record) {
         // Skip entities already retrieved from cache.
-        if (isset($entities[$record->{$this->nameKey}])) {
+        if (isset($entities[$record->{$this->idKey}])) {
           continue;
         }
 
@@ -237,7 +237,7 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
           }
         }
 
-        $queried_entities[$record->{$this->nameKey}] = $record;
+        $queried_entities[$record->{$this->idKey}] = $record;
       }
     }
 
@@ -254,7 +254,7 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
       if (!empty($queried_entities) && !$revision_id) {
         $this->cacheSet($queried_entities);
 
-        // Remember we have cached all entities now.
+        // Remember if we have cached all entities now.
         if (!$conditions && $ids === FALSE) {
           $this->cacheComplete = TRUE;
         }
@@ -286,9 +286,6 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
   /**
    * Overridden.
    * @see includes/DrupalDefaultEntityController#cacheGet($ids, $conditions)
-   *
-   * If there is nameKey given, we index our entities by this key. This
-   * overrides cacheGet() to respect that when applying $conditions.
    */
   protected function cacheGet($ids, $conditions = array()) {
     if (!empty($this->entityCache)) {
@@ -303,19 +300,17 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
    * Overridden.
    * @see DrupalDefaultEntityController::attachLoad()
    *
-   * Fixed to make attaching fields to entities having a name key work.
+   * Changed to call type-specific hook with the entities keyed by name if they
+   * have one.
    */
   protected function attachLoad(&$queried_entities, $revision_id = FALSE) {
     // Attach fields.
     if ($this->entityInfo['fieldable']) {
-      // Field API assumes queried entities are keyed by the idkey, thus
-      // adapt the array accordingly for it.
-      $entities = $this->getEntitiesKeyedByNumericID($queried_entities);
       if ($revision_id) {
-        field_attach_load_revision($this->entityType, $entities);
+        field_attach_load_revision($this->entityType, $queried_entities);
       }
       else {
-        field_attach_load($this->entityType, $entities);
+        field_attach_load($this->entityType, $queried_entities);
       }
     }
 
@@ -327,24 +322,18 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
     // Call hook_TYPE_load(). The first argument for hook_TYPE_load() are
     // always the queried entities, followed by additional arguments set in
     // $this->hookLoadArguments.
-    $args = array_merge(array($queried_entities), $this->hookLoadArguments);
+    // For entities with a name key, pass the entities keyed by name to the
+    // specific load hook.
+    if ($this->nameKey != $this->idKey) {
+      $entities_by_name = entity_key_array_by_property($queried_entities, $this->nameKey);
+    }
+    else {
+      $entities_by_name = $queried_entities;
+    }
+    $args = array_merge(array($entities_by_name), $this->hookLoadArguments);
     foreach (module_implements($this->entityInfo['load hook']) as $module) {
       call_user_func_array($module . '_' . $this->entityInfo['load hook'], $args);
     }
-  }
-
-  /**
-   * Converts an array of entities in an array of entities keyed by numeric id, i.e. by id key.
-   */
-  protected function getEntitiesKeyedByNumericID($entities) {
-    if ($this->nameKey != $this->idKey) {
-      $result = array();
-      foreach ($entities as $entity) {
-        $result[$entity->{$this->idKey}] = $entity;
-      }
-      return $result;
-    }
-    return $entities;
   }
 
   public function resetCache(array $ids = NULL) {
@@ -405,7 +394,7 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
 
     try {
       db_delete($this->entityInfo['base table'])
-        ->condition($this->nameKey, array_keys($entities), 'IN')
+        ->condition($this->idKey, array_keys($entities), 'IN')
         ->execute();
       // Reset the cache as soon as the changes have been applied.
       $this->resetCache($ids);
@@ -458,7 +447,7 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
 
       if (!empty($entity->{$this->idKey}) && empty($entity->is_new)) {
         $return = drupal_write_record($this->entityInfo['base table'], $entity, $this->idKey);
-        $this->resetCache(array($entity->{$this->nameKey}));
+        $this->resetCache(array($entity->{$this->idKey}));
         $this->invoke('update', $entity);
       }
       else {
@@ -553,20 +542,22 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
    * Implements EntityAPIControllerInterface.
    */
   public function view($entities, $view_mode = 'full', $langcode = NULL) {
+    // For Field API and entity_prepare_view, the entities have to be keyed by
+    // (numeric) id.
+    $entities = entity_key_array_by_property($entities, $this->idKey);
     if (!empty($this->entityInfo['fieldable'])) {
-      // Field API assumes queried entities are keyed by the idkey, thus
-      // adapt the array accordingly for it.
-      field_attach_prepare_view($this->entityType, $this->getEntitiesKeyedByNumericID($entities), $view_mode);
+      field_attach_prepare_view($this->entityType, $entities, $view_mode);
     }
     entity_prepare_view($this->entityType, $entities);
     $langcode = isset($langcode) ? $langcode : $GLOBALS['language_content']->language;
 
     $view = array();
-    foreach ($entities as $key => $entity) {
+    foreach ($entities as $entity) {
       $build = entity_build_content($this->entityType, $entity, $view_mode, $langcode);
       $build += array(
         // If the entity type provides an implementation, use this instead the
         // generic one.
+        // @see template_preprocess_entity()
         '#theme' => 'entity',
         '#entity_type' => $this->entityType,
         '#entity' => $entity,
@@ -575,9 +566,9 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
       );
       // Allow modules to modify the structured entity.
       drupal_alter(array($this->entityType . '_view', 'entity_view'), $build, $this->entityType);
+      $key = isset($entity->{$this->nameKey}) ? $entity->{$this->nameKey} : NULL;
       $view[$this->entityType][$key] = $build;
     }
     return $view;
   }
-
 }
