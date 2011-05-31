@@ -262,11 +262,17 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
     }
     // Ensure that the returned array is ordered the same as the original
     // $ids array if this was passed in and remove any invalid ids.
-    if ($passed_ids && $passed_ids = array_intersect_key($passed_ids, $entities)) {
-      foreach ($passed_ids as $id => $value) {
-        $passed_ids[$id] = $entities[$id];
+    if ($passed_ids) {
+      if ($this->nameKey != $this->idKey && !is_numeric(key($passed_ids))) {
+        $entities = entity_key_array_by_property($entities, $this->nameKey);
       }
-      $entities = $passed_ids;
+      $return = array();
+      foreach ($passed_ids as $id => $value) {
+        if (isset($entities[$id])) {
+          $return[$entities[$id]->{$this->idKey}] = $entities[$id];
+        }
+      }
+      $entities = $return;
     }
     return $entities;
   }

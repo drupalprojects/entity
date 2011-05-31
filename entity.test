@@ -106,7 +106,9 @@ class EntityAPITestCase extends DrupalWebTestCase {
   function testExportables() {
     module_enable(array('entity_feature'));
 
-    $types = entity_load_multiple_by_name('entity_test_type', array('test', 'test2'));
+    $types = entity_load_multiple_by_name('entity_test_type', array('test2', 'test'));
+
+    $this->assertEqual(array_keys($types), array('test2', 'test'), 'Entities have been loaded in the order as specified.');
     $this->assertEqual($types['test']->label, 'label', 'Default type loaded.');
     $this->assertTrue($types['test']->status & ENTITY_IN_CODE && !($types['test']->status & ENTITY_CUSTOM), 'Default type status is correct.');
 
