@@ -117,7 +117,7 @@ interface EntityAPIControllerInterface extends DrupalEntityControllerInterface {
  */
 class EntityAPIController extends DrupalDefaultEntityController implements EntityAPIControllerInterface {
 
-  protected $cacheComplete = FALSE;
+  protected $cacheComplete = FALSE, $entityCacheByName = array();
   protected $nameKey, $statusKey, $moduleKey, $bundleKey;
 
   /**
@@ -277,6 +277,27 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
     return $entities;
   }
 
+  /**
+   * Overridden.
+   * @see DrupalDefaultEntityController::cacheGet()
+   */
+  protected function cacheGet($ids, $conditions = array()) {
+    if (!empty($this->entityCache)) {
+      // First get the entities by ids, then apply the conditions.
+      if (!is_array($ids)) {
+        $entities = $this->entityCache;
+      }
+      elseif ($this->nameKey != $this->idKey && !is_numeric(reset($ids))) {
+        $entities = entity_key_array_by_property(array_intersect_key($this->entityCacheByName, array_flip($ids)), $this->idKey);
+      }
+      else {
+        $entities = array_intersect_key($this->entityCache, array_flip($ids));
+      }
+      return $this->applyConditions($entities, $conditions);
+    }
+    return array();
+  }
+
   protected function applyConditions($entities, $conditions = array()) {
     if ($conditions) {
       foreach ($entities as $key => $entity) {
@@ -291,15 +312,13 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
 
   /**
    * Overridden.
-   * @see includes/DrupalDefaultEntityController#cacheGet($ids, $conditions)
+   * @see DrupalDefaultEntityController::cacheSet()
    */
-  protected function cacheGet($ids, $conditions = array()) {
-    if (!empty($this->entityCache)) {
-      // First get the entities by ids, then apply the conditions.
-      $entities = is_array($ids) ? array_intersect_key($this->entityCache, array_flip($ids)) : $this->entityCache;
-      return $this->applyConditions($entities, $conditions);
+  protected function cacheSet($entities) {
+    $this->entityCache += $entities;
+    if ($this->nameKey != $this->idKey) {
+      $this->entityCacheByName += entity_key_array_by_property($entities, $this->nameKey);
     }
-    return array();
   }
 
   /**
@@ -344,7 +363,18 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
 
   public function resetCache(array $ids = NULL) {
     $this->cacheComplete = FALSE;
-    parent::resetCache($ids);
+    if (isset($ids)) {
+      foreach ($ids as $id) {
+        if (isset($this->entityCache[$id])) {
+          unset($this->entityCacheByName[$this->entityCache[$id]->{$this->nameKey}]);
+          unset($this->entityCache[$id]);
+        }
+      }
+    }
+    else {
+      $this->entityCache = array();
+      $this->entityCacheByName = array();
+    }
   }
 
   /**
@@ -399,8 +429,10 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
     $transaction = isset($transaction) ? $transaction : db_transaction();
 
     try {
+      $ids = array_keys($entities);
+
       db_delete($this->entityInfo['base table'])
-        ->condition($this->idKey, array_keys($entities), 'IN')
+        ->condition($this->idKey, $ids, 'IN')
         ->execute();
       // Reset the cache as soon as the changes have been applied.
       $this->resetCache($ids);
