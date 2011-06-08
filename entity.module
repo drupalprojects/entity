@@ -342,8 +342,8 @@ function entity_id($entity_type, $entity) {
  *   (optional) A language code to use for rendering. Defaults to the global
  *   content language of the current request.
  * @return
- *   The renderable array, key by name key if existing or by numeric id else.
- *   If there is no information how to view an entity, FALSE is returned.
+ *   The renderable array, keyed by name key if existing or by numeric id else.
+ *   If there is no information on how to view an entity, FALSE is returned.
  */
 function entity_view($entity_type, $entities, $view_mode = 'full', $langcode = NULL) {
   $info = entity_get_info($entity_type);
