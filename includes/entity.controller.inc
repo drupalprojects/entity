@@ -284,6 +284,8 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
   protected function cacheGet($ids, $conditions = array()) {
     if (!empty($this->entityCache)) {
       // First get the entities by ids, then apply the conditions.
+      // Generally, we make use of $this->entityCache, but if we are loading by
+      // name, we have to use $this->entityCacheByName.
       if (!is_array($ids)) {
         $entities = $this->entityCache;
       }
@@ -316,6 +318,7 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
    */
   protected function cacheSet($entities) {
     $this->entityCache += $entities;
+    // If we have a name key, also support static caching when loading by name.
     if ($this->nameKey != $this->idKey) {
       $this->entityCacheByName += entity_key_array_by_property($entities, $this->nameKey);
     }
