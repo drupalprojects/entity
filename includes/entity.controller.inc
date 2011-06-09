@@ -112,29 +112,19 @@ interface EntityAPIControllerInterface extends DrupalEntityControllerInterface {
 }
 
 /**
- * A controller implementing EntityAPIControllerInterface for the database and
- * being able to deal with exportable entities.
+ * A controller implementing EntityAPIControllerInterface for the database.
  */
 class EntityAPIController extends DrupalDefaultEntityController implements EntityAPIControllerInterface {
 
-  protected $cacheComplete = FALSE, $entityCacheByName = array();
-  protected $nameKey, $statusKey, $moduleKey, $bundleKey;
+  protected $cacheComplete = FALSE;
+  protected $bundleKey;
 
   /**
    * Overridden.
    * @see DrupalDefaultEntityController#__construct()
-   *
-   * Allows specifying a name key serving as uniform identifier for this entity
-   * type while still internally we are using numeric identifieres.
    */
   public function __construct($entityType) {
     parent::__construct($entityType);
-    // Use the name key as primary identifier.
-    $this->nameKey = isset($this->entityInfo['entity keys']['name']) ? $this->entityInfo['entity keys']['name'] : $this->idKey;
-    if (!empty($this->entityInfo['exportable'])) {
-      $this->statusKey = isset($this->entityInfo['entity keys']['status']) ? $this->entityInfo['entity keys']['status'] : 'status';
-      $this->moduleKey = isset($this->entityInfo['entity keys']['module']) ? $this->entityInfo['entity keys']['module'] : 'module';
-    }
     // If this is the bundle of another entity, set the bundle key.
     if (isset($this->entityInfo['bundle of'])) {
       $info = entity_get_info($this->entityInfo['bundle of']);
@@ -157,32 +147,15 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
     return $result;
   }
 
-  protected function buildQuery($ids, $conditions = array(), $revision_id = FALSE) {
-    // Add the id condition ourself, as we might have a separate name key.
-    $query = parent::buildQuery(array(), $conditions, $revision_id);
-    if ($ids) {
-      // Support loading by numeric ids as well as by machine names.
-      $key = is_numeric(reset($ids)) ? $this->idKey : $this->nameKey;
-      $query->condition("base.$key", $ids, 'IN');
-    }
-    return $query;
-  }
-
   /**
    * Overridden.
    * @see DrupalDefaultEntityController#load($ids, $conditions)
    *
    * In contrast to the parent implementation we factor out query execution, so
-   * fetching can be further customized easily. Also we add any objects defined
-   * in code.
+   * fetching can be further customized easily.
    */
   public function load($ids = array(), $conditions = array()) {
     $entities = array();
-
-    // For exportable entities, make sure the defaults have been built.
-    if (!empty($this->entityInfo['exportable']) && empty($GLOBALS['conf']['entity_defaults_built'][$this->entityType])) {
-      _entity_defaults_rebuild($this->entityType);
-    }
 
     // Revisions are not statically cached, and require a different query to
     // other conditions, so separate the revision id into its own variable.
@@ -202,7 +175,7 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
     $passed_ids = !empty($ids) ? array_flip($ids) : FALSE;
 
     // Try to load entities from the static cache.
-    if (!$revision_id) {
+    if ($this->cache && !$revision_id) {
       $entities = $this->cacheGet($ids, $conditions);
       // If any entities were loaded, remove them from the ids still to load.
       if ($passed_ids) {
@@ -262,122 +235,18 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
     }
     // Ensure that the returned array is ordered the same as the original
     // $ids array if this was passed in and remove any invalid ids.
-    if ($passed_ids) {
-      if ($this->nameKey != $this->idKey && !is_numeric(key($passed_ids))) {
-        $entities = entity_key_array_by_property($entities, $this->nameKey);
-      }
-      $return = array();
+    if ($passed_ids && $passed_ids = array_intersect_key($passed_ids, $entities)) {
       foreach ($passed_ids as $id => $value) {
-        if (isset($entities[$id])) {
-          $return[$entities[$id]->{$this->idKey}] = $entities[$id];
-        }
+        $passed_ids[$id] = $entities[$id];
       }
-      $entities = $return;
+      $entities = $passed_ids;
     }
     return $entities;
-  }
-
-  /**
-   * Overridden.
-   * @see DrupalDefaultEntityController::cacheGet()
-   */
-  protected function cacheGet($ids, $conditions = array()) {
-    if (!empty($this->entityCache)) {
-      // First get the entities by ids, then apply the conditions.
-      // Generally, we make use of $this->entityCache, but if we are loading by
-      // name, we have to use $this->entityCacheByName.
-      if (!is_array($ids)) {
-        $entities = $this->entityCache;
-      }
-      elseif ($this->nameKey != $this->idKey && !is_numeric(reset($ids))) {
-        $entities = entity_key_array_by_property(array_intersect_key($this->entityCacheByName, array_flip($ids)), $this->idKey);
-      }
-      else {
-        $entities = array_intersect_key($this->entityCache, array_flip($ids));
-      }
-      return $this->applyConditions($entities, $conditions);
-    }
-    return array();
-  }
-
-  protected function applyConditions($entities, $conditions = array()) {
-    if ($conditions) {
-      foreach ($entities as $key => $entity) {
-        $entity_values = (array) $entity;
-        if (array_diff_assoc($conditions, $entity_values)) {
-          unset($entities[$key]);
-        }
-      }
-    }
-    return $entities;
-  }
-
-  /**
-   * Overridden.
-   * @see DrupalDefaultEntityController::cacheSet()
-   */
-  protected function cacheSet($entities) {
-    $this->entityCache += $entities;
-    // If we have a name key, also support static caching when loading by name.
-    if ($this->nameKey != $this->idKey) {
-      $this->entityCacheByName += entity_key_array_by_property($entities, $this->nameKey);
-    }
-  }
-
-  /**
-   * Overridden.
-   * @see DrupalDefaultEntityController::attachLoad()
-   *
-   * Changed to call type-specific hook with the entities keyed by name if they
-   * have one.
-   */
-  protected function attachLoad(&$queried_entities, $revision_id = FALSE) {
-    // Attach fields.
-    if ($this->entityInfo['fieldable']) {
-      if ($revision_id) {
-        field_attach_load_revision($this->entityType, $queried_entities);
-      }
-      else {
-        field_attach_load($this->entityType, $queried_entities);
-      }
-    }
-
-    // Call hook_entity_load().
-    foreach (module_implements('entity_load') as $module) {
-      $function = $module . '_entity_load';
-      $function($queried_entities, $this->entityType);
-    }
-    // Call hook_TYPE_load(). The first argument for hook_TYPE_load() are
-    // always the queried entities, followed by additional arguments set in
-    // $this->hookLoadArguments.
-    // For entities with a name key, pass the entities keyed by name to the
-    // specific load hook.
-    if ($this->nameKey != $this->idKey) {
-      $entities_by_name = entity_key_array_by_property($queried_entities, $this->nameKey);
-    }
-    else {
-      $entities_by_name = $queried_entities;
-    }
-    $args = array_merge(array($entities_by_name), $this->hookLoadArguments);
-    foreach (module_implements($this->entityInfo['load hook']) as $module) {
-      call_user_func_array($module . '_' . $this->entityInfo['load hook'], $args);
-    }
   }
 
   public function resetCache(array $ids = NULL) {
     $this->cacheComplete = FALSE;
-    if (isset($ids)) {
-      foreach ($ids as $id) {
-        if (isset($this->entityCache[$id])) {
-          unset($this->entityCacheByName[$this->entityCache[$id]->{$this->nameKey}]);
-          unset($this->entityCache[$id]);
-        }
-      }
-    }
-    else {
-      $this->entityCache = array();
-      $this->entityCacheByName = array();
-    }
+    parent::resetCache($ids);
   }
 
   /**
@@ -429,7 +298,10 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
       // Do nothing, in case invalid or no ids have been passed.
       return;
     }
-    $transaction = isset($transaction) ? $transaction : db_transaction();
+    // This transaction causes troubles on MySQL, see
+    // http://drupal.org/node/1007830. So we deactivate this by default until
+    // is shipped in a point release.
+    // $transaction = isset($transaction) ? $transaction : db_transaction();
 
     try {
       $ids = array_keys($entities);
@@ -442,24 +314,16 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
 
       foreach ($entities as $id => $entity) {
         $this->invoke('delete', $entity);
-        if (entity_has_status($this->entityType, $entity, ENTITY_IN_CODE)) {
-          $rebuild = TRUE;
-        }
       }
       // Ignore slave server temporarily.
       db_ignore_slave();
     }
     catch (Exception $e) {
-      $transaction->rollback();
+      if (isset($transaction)) {
+        $transaction->rollback();
+      }
       watchdog_exception($this->entityType, $e);
       throw $e;
-    }
-    // We have to postpone rebuilding defaults until the transaction has been
-    // committed. This is as variable_set() triggers a merge query and dies with
-    // a savepoint exception if it is inside a transaction.
-    if (!empty($rebuild)) {
-      $transaction = NULL;
-      entity_defaults_rebuild(array($this->entityType));
     }
   }
 
@@ -474,14 +338,10 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
     $transaction = isset($transaction) ? $transaction : db_transaction();
     try {
       // Load the stored entity, if any.
-      if (!empty($entity->{$this->nameKey}) && !isset($entity->original)) {
+      if (!empty($entity->{$this->idKey}) && !isset($entity->original)) {
         // In order to properly work in case of name changes, load the original
         // entity using the id key if it is available.
-        $entity->original = entity_load_unchanged($this->entityType, !empty($entity->{$this->idKey}) ? $entity->{$this->idKey} : $entity->{$this->nameKey});
-      }
-      // Update the status for entities getting overridden.
-      if (entity_has_status($this->entityType, $entity, ENTITY_IN_CODE) && empty($entity->is_rebuild)) {
-        $entity->{$this->statusKey} |= ENTITY_CUSTOM;
+        $entity->original = entity_load_unchanged($this->entityType, $entity->{$this->idKey});
       }
 
       $this->invoke('presave', $entity);
@@ -529,10 +389,7 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
    */
   public function export($entity, $prefix = '') {
     $vars = get_object_vars($entity);
-    unset($vars[$this->statusKey], $vars[$this->moduleKey], $vars['is_new']);
-    if ($this->nameKey != $this->idKey) {
-      unset($vars[$this->idKey]);
-    }
+    unset($vars['is_new']);
     return entity_var_json_export($vars, $prefix);
   }
 
@@ -607,9 +464,257 @@ class EntityAPIController extends DrupalDefaultEntityController implements Entit
       );
       // Allow modules to modify the structured entity.
       drupal_alter(array($this->entityType . '_view', 'entity_view'), $build, $this->entityType);
-      $key = isset($entity->{$this->nameKey}) ? $entity->{$this->nameKey} : NULL;
+      $key = isset($entity->{$this->idKey}) ? $entity->{$this->idKey} : NULL;
       $view[$this->entityType][$key] = $build;
     }
+    return $view;
+  }
+}
+
+/**
+ * A controller implementing exportables stored in the database.
+ */
+class EntityAPIControllerExportable extends EntityAPIController {
+
+  protected $entityCacheByName = array();
+  protected $nameKey, $statusKey, $moduleKey;
+
+  /**
+   * Overridden.
+   *
+   * Allows specifying a name key serving as uniform identifier for this entity
+   * type while still internally we are using numeric identifieres.
+   */
+  public function __construct($entityType) {
+    parent::__construct($entityType);
+    // Use the name key as primary identifier.
+    $this->nameKey = isset($this->entityInfo['entity keys']['name']) ? $this->entityInfo['entity keys']['name'] : $this->idKey;
+    if (!empty($this->entityInfo['exportable'])) {
+      $this->statusKey = isset($this->entityInfo['entity keys']['status']) ? $this->entityInfo['entity keys']['status'] : 'status';
+      $this->moduleKey = isset($this->entityInfo['entity keys']['module']) ? $this->entityInfo['entity keys']['module'] : 'module';
+    }
+  }
+
+  /**
+   * Support loading by name key.
+   */
+  protected function buildQuery($ids, $conditions = array(), $revision_id = FALSE) {
+    // Add the id condition ourself, as we might have a separate name key.
+    $query = parent::buildQuery(array(), $conditions, $revision_id);
+    if ($ids) {
+      // Support loading by numeric ids as well as by machine names.
+      $key = is_numeric(reset($ids)) ? $this->idKey : $this->nameKey;
+      $query->condition("base.$key", $ids, 'IN');
+    }
+    return $query;
+  }
+
+  /**
+   * Overridden to support passing numeric ids as well as names as $ids.
+   */
+  public function load($ids = array(), $conditions = array()) {
+    $entities = array();
+    // For exportable entities, make sure the defaults have been built.
+    if (!empty($this->entityInfo['exportable']) && empty($GLOBALS['conf']['entity_defaults_built'][$this->entityType])) {
+      _entity_defaults_rebuild($this->entityType);
+    }
+
+    // Only do something if loaded by names.
+    if (!$ids || $this->nameKey == $this->idKey || is_numeric(reset($ids))) {
+      return parent::load($ids, $conditions);
+    }
+
+    // Revisions are not statically cached, and require a different query to
+    // other conditions, so separate the revision id into its own variable.
+    if ($this->revisionKey && isset($conditions[$this->revisionKey])) {
+      $revision_id = $conditions[$this->revisionKey];
+      unset($conditions[$this->revisionKey]);
+    }
+    else {
+      $revision_id = FALSE;
+    }
+    $passed_ids = !empty($ids) ? array_flip($ids) : FALSE;
+
+    // Care about the static cache.
+    if ($this->cache && !$revision_id) {
+      $entities = $this->cacheGetByName($ids, $conditions);
+    }
+    // If any entities were loaded, remove them from the ids still to load.
+    if ($entities) {
+      $ids = array_keys(array_diff_key($passed_ids, $entities));
+    }
+
+    $entities_by_id = parent::load($ids, $conditions);
+    $entities += entity_key_array_by_property($entities_by_id, $this->nameKey);
+
+    // Ensure that the returned array is keyed by numeric id and ordered the
+    // same as the original $ids array and remove any invalid ids.
+    $return = array();
+    foreach ($passed_ids as $name => $value) {
+      if (isset($entities[$name])) {
+        $return[$entities[$name]->{$this->idKey}] = $entities[$name];
+      }
+    }
+    return $return;
+  }
+
+  /**
+   * Overridden.
+   * @see DrupalDefaultEntityController::cacheGet()
+   */
+  protected function cacheGet($ids, $conditions = array()) {
+    if (!empty($this->entityCache) && $ids !== array()) {
+      $entities = $ids ? array_intersect_key($this->entityCache, array_flip($ids)) : $this->entityCache;
+      return $this->applyConditions($entities, $conditions);
+    }
+    return array();
+  }
+
+  /**
+   * Like cacheGet() but keyed by name.
+   */
+  protected function cacheGetByName($names, $conditions = array()) {
+    if (!empty($this->entityCacheByName) && $names !== array() && $names) {
+      // First get the entities by ids, then apply the conditions.
+      // Generally, we make use of $this->entityCache, but if we are loading by
+      // name, we have to use $this->entityCacheByName.
+      $entities = array_intersect_key($this->entityCacheByName, array_flip($names));
+      return $this->applyConditions($entities, $conditions);
+    }
+    return array();
+  }
+
+  protected function applyConditions($entities, $conditions = array()) {
+    if ($conditions) {
+      foreach ($entities as $key => $entity) {
+        $entity_values = (array) $entity;
+        if (array_diff_assoc($conditions, $entity_values)) {
+          unset($entities[$key]);
+        }
+      }
+    }
+    return $entities;
+  }
+
+  /**
+   * Overridden.
+   * @see DrupalDefaultEntityController::cacheSet()
+   */
+  protected function cacheSet($entities) {
+    $this->entityCache += $entities;
+    // If we have a name key, also support static caching when loading by name.
+    if ($this->nameKey != $this->idKey) {
+      $this->entityCacheByName += entity_key_array_by_property($entities, $this->nameKey);
+    }
+  }
+
+  /**
+   * Overridden.
+   * @see DrupalDefaultEntityController::attachLoad()
+   *
+   * Changed to call type-specific hook with the entities keyed by name if they
+   * have one.
+   */
+  protected function attachLoad(&$queried_entities, $revision_id = FALSE) {
+    // Attach fields.
+    if ($this->entityInfo['fieldable']) {
+      if ($revision_id) {
+        field_attach_load_revision($this->entityType, $queried_entities);
+      }
+      else {
+        field_attach_load($this->entityType, $queried_entities);
+      }
+    }
+
+    // Call hook_entity_load().
+    foreach (module_implements('entity_load') as $module) {
+      $function = $module . '_entity_load';
+      $function($queried_entities, $this->entityType);
+    }
+    // Call hook_TYPE_load(). The first argument for hook_TYPE_load() are
+    // always the queried entities, followed by additional arguments set in
+    // $this->hookLoadArguments.
+    // For entities with a name key, pass the entities keyed by name to the
+    // specific load hook.
+    if ($this->nameKey != $this->idKey) {
+      $entities_by_name = entity_key_array_by_property($queried_entities, $this->nameKey);
+    }
+    else {
+      $entities_by_name = $queried_entities;
+    }
+    $args = array_merge(array($entities_by_name), $this->hookLoadArguments);
+    foreach (module_implements($this->entityInfo['load hook']) as $module) {
+      call_user_func_array($module . '_' . $this->entityInfo['load hook'], $args);
+    }
+  }
+
+  public function resetCache(array $ids = NULL) {
+    $this->cacheComplete = FALSE;
+    if (isset($ids)) {
+      foreach (array_intersect_key($this->entityCache, array_flip($ids)) as $id => $entity) {
+        unset($this->entityCacheByName[$this->entityCache[$id]->{$this->nameKey}]);
+        unset($this->entityCache[$id]);
+      }
+    }
+    else {
+      $this->entityCache = array();
+      $this->entityCacheByName = array();
+    }
+  }
+
+  /**
+   * Overridden to care about reverted entities.
+   */
+  public function delete($ids, DatabaseTransaction $transaction = NULL) {
+    $entities = $ids ? $this->load($ids) : FALSE;
+    if ($entities) {
+      parent::delete($ids, $transaction);
+
+      foreach ($entities as $id => $entity) {
+        if (entity_has_status($this->entityType, $entity, ENTITY_IN_CODE)) {
+          entity_defaults_rebuild(array($this->entityType));
+          break;
+        }
+      }
+    }
+  }
+
+  /**
+   * Overridden to care exportables that are overridden.
+   */
+  public function save($entity, DatabaseTransaction $transaction = NULL) {
+    // Preload $entity->original by name key if necessary.
+    if (!empty($entity->{$this->nameKey}) && empty($entity->{$this->idKey}) && !isset($entity->original)) {
+      $entity->original = entity_load_unchanged($this->entityType, $entity->{$this->nameKey});
+    }
+    // Update the status for entities getting overridden.
+    if (entity_has_status($this->entityType, $entity, ENTITY_IN_CODE) && empty($entity->is_rebuild)) {
+      $entity->{$this->statusKey} |= ENTITY_CUSTOM;
+    }
+    parent::save($entity, $transaction);
+  }
+
+  /**
+   * Overridden.
+   */
+  public function export($entity, $prefix = '') {
+    $vars = get_object_vars($entity);
+    unset($vars[$this->statusKey], $vars[$this->moduleKey], $vars['is_new']);
+    if ($this->nameKey != $this->idKey) {
+      unset($vars[$this->idKey]);
+    }
+    return entity_var_json_export($vars, $prefix);
+  }
+
+  /**
+   * Implements EntityAPIControllerInterface.
+   */
+  public function view($entities, $view_mode = 'full', $langcode = NULL) {
+    $view = parent::view($entities, $view_mode, $langcode);
+
+    // Re-key the view array to be keyed by name.
+    $key = isset($entity->{$this->nameKey}) ? $entity->{$this->nameKey} : NULL;
+    $view[$this->entityType][$key] = reset($view[$this->entityType]);
     return $view;
   }
 }

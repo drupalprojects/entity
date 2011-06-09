@@ -300,6 +300,8 @@ class EntityAPIRulesIntegrationTestCase extends DrupalWebTestCase {
 
     // Let the events occur.
     $user1 = $this->drupalCreateUser();
+    RulesLog::logger()->clear();
+
     $entity = entity_create('entity_test', array('name' => 'test', 'uid' => $user1->uid));
     $entity->save();
     $entity->name = 'update';
@@ -308,7 +310,6 @@ class EntityAPIRulesIntegrationTestCase extends DrupalWebTestCase {
 
     // Now there should have been 5 events, 2 times presave and once insert,
     // update and delete.
-
     $count = substr_count(RulesLog::logger()->render(), '0 ms Reacting on event');
     $this->assertTrue($count == 5, 'Events have been properly invoked.');
     RulesLog::logger()->checkLog();

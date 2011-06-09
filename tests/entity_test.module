@@ -31,7 +31,7 @@ function entity_test_entity_info() {
     'entity_test_type' => array(
       'label' => t('Test entity type'),
       'entity class' => 'Entity',
-      'controller class' => 'EntityAPIController',
+      'controller class' => 'EntityAPIControllerExportable',
       'base table' => 'entity_test_type',
       'fieldable' => FALSE,
       'bundle of' => 'entity_test',
