@@ -15,7 +15,11 @@
  *
  * This is a placeholder for describing further keys for hook_entity_info(),
  * which are introduced the entity API for providing a new entity type with the
- * entity CRUD API.
+ * entity CRUD API. For that the entity API provides two controllers:
+ *  - EntityAPIController: A regular CRUD controller.
+ *  - EntityAPIControllerExportable: Extends the regular controller to
+ *    additionally support exportable entities and/or entities making use of a
+ *    name key.
  * See entity_metadata_hook_entity_info() for the documentation of additional
  * keys for hook_entity_info() as introduced by the entity API and supported for
  * any entity type.
@@ -34,6 +38,7 @@
  *   If enabled, a name key should be specified and db columns for the module
  *   and status key as defined by entity_exportable_schema_fields() have to
  *   exist in the entity's base table. Also see 'entity keys' below.
+ *   This option requires the EntityAPIControllerExportable to work.
  * - entity keys: An array of keys as defined by Drupal core. The following
  *   additional keys are used by the entity CRUD API:
  *   - name: (optional) The key of the entity property containing the unique,
@@ -54,6 +59,7 @@
  *     function returns the entities keyed by name.
  *     For exportable entities, it is strongly recommended to make use of a
  *     machine name as names are portable across systems.
+ *     This option requires the EntityAPIControllerExportable to work.
  *   - module: (optional) A key for the module property used by the entity CRUD
  *     API to save the source module name for exportable entities that have been
  *     provided in code. Defaults to 'module'.
