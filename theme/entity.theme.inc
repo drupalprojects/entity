@@ -81,7 +81,30 @@ function template_preprocess_entity_property(&$variables, $hook) {
 
   // Populate the content with sensible defaults.
   if (!isset($variables['content'])) {
-    $variables['content'] = check_plain($element['#entity_wrapped']->{$element['#property_name']}->value());
+    $variables['content'] = entity_property_default_render_value_by_type($element['#entity_wrapped']->{$element['#property_name']});
+  }
+}
+
+/**
+ * Renders a property using simple defaults based upon the property type.
+ *
+ * @return string
+ */
+function entity_property_default_render_value_by_type(EntityMetadataWrapper $property) {
+  // If there is an options list or entity label, render that by default.
+  if ($label = $property->label()) {
+    if ($property instanceof EntityDrupalWrapper && $uri = entity_uri($property->type(), $property->value())) {
+      return l($label, $uri['path'], $uri['options']);
+    }
+    else {
+      return check_plain($label);
+    }
+  }
+  switch ($property->type()) {
+    case 'boolean':
+      return $property->value() ? t('yes') : t('no');
+    default:
+      return check_plain($property->value());
   }
 }
 

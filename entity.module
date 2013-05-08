@@ -971,17 +971,18 @@ function entity_theme() {
   return array(
     'entity_status' => array(
       'variables' => array('status' => NULL, 'html' => TRUE),
-      'file' => 'includes/entity.theme.inc',
+      'file' => 'theme/entity.theme.inc',
     ),
     'entity' => array(
       'render element' => 'elements',
       'template' => 'entity',
       'pattern' => $pattern,
-      'file' => 'includes/entity.theme.inc',
+      'path' => drupal_get_path('module', 'entity') . '/theme',
+      'file' => 'entity.theme.inc',
     ),
     'entity_property' => array(
       'render element' => 'elements',
-      'file' => 'includes/entity.theme.inc',
+      'file' => 'theme/entity.theme.inc',
     ),
     'entity_ui_overview_item' => array(
       'variables' => array('label' => NULL, 'entity_type' => NULL, 'url' => FALSE, 'name' => FALSE),
@@ -1165,6 +1166,39 @@ function entity_views_api() {
     'api' => '3.0-alpha1',
     'path' => drupal_get_path('module', 'entity') . '/views',
   );
+}
+
+/**
+ * Implements hook_field_extra_fields().
+ */
+function entity_field_extra_fields() {
+  // Invoke specified controllers for entity types provided by the CRUD API.
+  $items = array();
+  foreach (entity_crud_get_info() as $type => $info) {
+    if (!empty($info['extra fields controller class'])) {
+      $items = array_merge_recursive($items, entity_get_extra_fields_controller($type)->fieldExtraFields());
+    }
+  }
+  return $items;
+}
+
+/**
+ * Gets the extra field controller class for a given entity type.
+ *
+ * @return EntityExtraFieldsControllerInterface|false
+ *   The controller for the given entity type or false if none is specified.
+ */
+function entity_get_extra_fields_controller($type = NULL) {
+  $static = &drupal_static(__FUNCTION__);
+
+  if (!isset($static[$type])) {
+    $static[$type] = FALSE;
+    $info = entity_get_info($type);
+    if (!empty($info['extra fields controller class'])) {
+      $static[$type] = new $info['extra fields controller class']($type);
+    }
+  }
+  return $static[$type];
 }
 
 /**
