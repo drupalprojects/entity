@@ -1186,7 +1186,7 @@ function entity_field_extra_fields() {
  * Gets the extra field controller class for a given entity type.
  *
  * @return EntityExtraFieldsControllerInterface|false
- *   The controller for the given entity type or false if none is specified.
+ *   The controller for the given entity type or FALSE if none is specified.
  */
 function entity_get_extra_fields_controller($type = NULL) {
   $static = &drupal_static(__FUNCTION__);
