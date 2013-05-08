@@ -182,6 +182,9 @@ function _entity_metadata_convert_schema_type($type) {
 
 /**
  * Interface for extra fields controller.
+ *
+ * Note: Display extra fields exposed by this controller are rendered by default
+ * by the EntityAPIController.
  */
 interface EntityExtraFieldsControllerInterface {
 
