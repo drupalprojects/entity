@@ -971,17 +971,17 @@ function entity_theme() {
   return array(
     'entity_status' => array(
       'variables' => array('status' => NULL, 'html' => TRUE),
-      'file' => 'entity.theme.inc',
+      'file' => 'includes/entity.theme.inc',
     ),
     'entity' => array(
       'render element' => 'elements',
       'template' => 'entity',
       'pattern' => $pattern,
-      'file' => 'entity.theme.inc',
+      'file' => 'includes/entity.theme.inc',
     ),
     'entity_property' => array(
       'render element' => 'elements',
-      'file' => 'entity.theme.inc',
+      'file' => 'includes/entity.theme.inc',
     ),
     'entity_ui_overview_item' => array(
       'variables' => array('label' => NULL, 'entity_type' => NULL, 'url' => FALSE, 'name' => FALSE),

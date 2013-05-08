@@ -26,7 +26,6 @@
  *   - content_attributes: A string containing the attributes for the content's
  *     div.
  *   - content: The rendered property value.
- *   - classes: A string containing the classes for the wrapping div.
  *   - attributes: A string containing the attributes for the wrapping div.
  *
  * @ingroup themeable
@@ -36,7 +35,7 @@ function theme_entity_property($variables) {
 
   // Render the label, if it's not hidden.
   if (!$variables['label_hidden']) {
-    $output .= '<div class="entity-property-label"' . $variables['title_attributes'] . '>' . $variables['label'] . ':&nbsp;</div>';
+    $output .= '<div' . $variables['title_attributes'] . '>' . $variables['label'] . ':&nbsp;</div>';
   }
 
   // Render the content.
@@ -48,7 +47,61 @@ function theme_entity_property($variables) {
   $output .= $variables['content'] . $content_suffix;
 
   // Render the top-level DIV.
-  return '<div class="' . $variables['classes'] . '"' . $variables['attributes'] . '>' . $output . '</div>';
+  return '<div' . $variables['attributes'] . '>' . $output . '</div>';
+}
+
+/**
+ * Theme preprocess function for theme_entity_property().
+ *
+ * @see theme_entity_property()
+ */
+function template_preprocess_entity_property(&$variables, $hook) {
+  $element = $variables['elements'];
+
+  $variables += array(
+    'theme_hook_suggestions' => array(),
+    'attributes_array' => array(),
+  );
+  // Generate variables from element properties.
+  foreach (array('label_hidden', 'label', 'property_name') as $name) {
+    $variables[$name] = check_plain($element['#' . $name]);
+  }
+  $variables['title_attributes_array']['class'][] = 'entity-property-label';
+  $variables['attributes_array'] = array_merge($variables['attributes_array'], isset($element['#attributes']) ? $element['#attributes'] : array());
+
+  $variables['property_name_css'] = strtr($element['#property_name'], '_', '-');
+  $variables['attributes_array']['class'][] = 'entity-property';
+  $variables['attributes_array']['class'][] = 'entity-property-' . $variables['property_name_css'];
+
+  // Add specific suggestions that can override the default implementation.
+  $variables['theme_hook_suggestions'] += array(
+    'entity_property__' . $element['#property_name'],
+    'entity_property__' . $element['#entity_type'] . '__' . $element['#property_name'],
+  );
+
+  // Populate the content with sensible defaults.
+  if (!isset($variables['content'])) {
+    $variables['content'] = check_plain($element['#entity_wrapped']->{$element['#property_name']}->value());
+  }
+}
+
+/**
+ * Theme process function for theme_entity_property().
+ *
+ * Taken over from template_process_field()
+ *
+ * @see theme_entity_property()
+ */
+function template_process_entity_property(&$variables, $hook) {
+  $element = $variables['elements'];
+  // The default theme implementation is a function, so template_process() does
+  // not automatically run, so we need to flatten the classes and attributes
+  // here. For best performance, only call drupal_attributes() when needed, and
+  // note that template_preprocess_field() does not initialize the
+  // *_attributes_array variables.
+  $variables['attributes'] = empty($variables['attributes_array']) ? '' : drupal_attributes($variables['attributes_array']);
+  $variables['title_attributes'] = empty($variables['title_attributes_array']) ? '' : drupal_attributes($variables['title_attributes_array']);
+  $variables['content_attributes'] = empty($variables['content_attributes_array']) ? '' : drupal_attributes($variables['content_attributes_array']);
 }
 
 /**
